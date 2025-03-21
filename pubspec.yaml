@@ -20,6 +20,11 @@ dependencies:
   image_picker: ^1.1.2 # 使用最新版本，请查看 pub.dev 获取最新版本
   intl: ^0.17.0 # 用于日期格式化
 
+  photo_view: ^0.15.0
+  video_player: ^2.9.3
+  url_launcher: ^6.3.1
+  
+
   
 
 dev_dependencies:

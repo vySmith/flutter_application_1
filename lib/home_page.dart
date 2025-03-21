@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'file_page.dart'; // 确保导入 FilePage
+import 'Profile_page.dart';
 
 class HomePage extends StatefulWidget {
   @override
@@ -12,7 +13,8 @@ class _HomePageState extends State<HomePage> {
   final List<Widget> _pages = [
     FilePage(), // 文件页
     Center(child: Text('传输页')), // 占位页面
-    Center(child: Text('个人页面')), // 占位页面
+    ProfilePage(),
+    //Center(child: Text('个人页面')), // 占位页面
   ];
 
   @override

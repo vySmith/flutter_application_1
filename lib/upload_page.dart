@@ -8,14 +8,21 @@ import 'config.dart';
 
 class UploadPage extends StatefulWidget {
   final String uploadType; // 上传类型：photo, video, document, audio, other
-  const UploadPage({Key? key, required this.uploadType}) : super(key: key);
+
+  final String currentPath; // 新增当前路径参数
+
+  const UploadPage({
+    Key? key,
+    required this.uploadType,
+    required this.currentPath, // 添加路径参数
+  }) : super(key: key);
 
   @override
   _UploadPageState createState() => _UploadPageState();
 }
 
 class _UploadPageState extends State<UploadPage> {
-  String _uploadPath = '/'; // 默认上传路径
+  String get _uploadPath => widget.currentPath; // 上传路径
   List<File> _selectedFiles = []; // 选中的文件
   List<File> _files = []; // 显示的文件列表
   String _filter = '全部'; // 文件筛选条件
@@ -117,35 +124,35 @@ class _UploadPageState extends State<UploadPage> {
   }
 
   // 选择上传路径
-  void _selectUploadPath() {
-    // TODO: 从后端获取文件夹列表并显示选择对话框
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('选择上传路径'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              title: const Text('/ (根目录)'),
-              onTap: () {
-                setState(() => _uploadPath = '/');
-                Navigator.pop(context);
-              },
-            ),
-            // 示例文件夹，实际应从后端获取
-            ListTile(
-              title: const Text('/folder1'),
-              onTap: () {
-                setState(() => _uploadPath = '/folder1/');
-                Navigator.pop(context);
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+  // void _selectUploadPath() {
+  //   // TODO: 从后端获取文件夹列表并显示选择对话框
+  //   showDialog(
+  //     context: context,
+  //     builder: (context) => AlertDialog(
+  //       title: const Text('选择上传路径'),
+  //       content: Column(
+  //         mainAxisSize: MainAxisSize.min,
+  //         children: [
+  //           ListTile(
+  //             title: const Text('/ (根目录)'),
+  //             onTap: () {
+  //               setState(() => _uploadPath = '/');
+  //               Navigator.pop(context);
+  //             },
+  //           ),
+  //           // 示例文件夹，实际应从后端获取
+  //           ListTile(
+  //             title: const Text('/folder'),
+  //             onTap: () {
+  //               setState(() => _uploadPath = '/folder1/');
+  //               Navigator.pop(context);
+  //             },
+  //           ),
+  //         ],
+  //       ),
+  //     ),
+  //   );
+  // }
 
   // 全选文件
   void _selectAll() {
@@ -191,13 +198,13 @@ class _UploadPageState extends State<UploadPage> {
         ),
         title: Text(
             '上传${widget.uploadType == 'photo' ? '照片' : widget.uploadType == 'video' ? '视频' : widget.uploadType == 'document' ? '文档' : widget.uploadType == 'audio' ? '音频' : '其他文件'}'),
-        actions: [
-          TextButton(
-            onPressed: _selectUploadPath,
-            child: Text('上传至: $_uploadPath',
-                style: const TextStyle(color: Color.fromARGB(255, 71, 69, 69))),
-          ),
-        ],
+        // actions: [
+        //   TextButton(
+        //     onPressed: _selectUploadPath,
+        //     child: Text('上传至: $_uploadPath',
+        //         style: const TextStyle(color: Color.fromARGB(255, 71, 69, 69))),
+        //   ),
+        // ],
       ),
       body: Column(
         children: [

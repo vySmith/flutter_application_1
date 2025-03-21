@@ -5,6 +5,87 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart'; // 导入 shared_preferences
 import 'upload_photo_page.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:video_player/video_player.dart';
+import 'package:photo_view/photo_view.dart';
+import 'package:photo_view/photo_view_gallery.dart';
+import 'FileService.dart';
+
+// 添加文件类型判断方法
+bool isImageFile(String? format) {
+  if (format == null) return false;
+  return ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp']
+      .contains(format.toLowerCase());
+}
+
+bool isVideoFile(String? format) {
+  if (format == null) return false;
+  return ['mp4', 'mov', 'avi', 'mkv', 'flv', 'wmv']
+      .contains(format.toLowerCase());
+}
+
+// 图片预览组件
+class PhotoViewGalleryScreen extends StatelessWidget {
+  final String imageUrl;
+
+  const PhotoViewGalleryScreen({required this.imageUrl});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(),
+      body: PhotoView(
+        imageProvider: NetworkImage(imageUrl),
+        minScale: PhotoViewComputedScale.contained,
+        maxScale: PhotoViewComputedScale.covered * 2,
+      ),
+    );
+  }
+}
+
+// 视频预览组件
+class VideoPreviewScreen extends StatefulWidget {
+  final String videoUrl;
+
+  const VideoPreviewScreen({required this.videoUrl});
+
+  @override
+  _VideoPreviewScreenState createState() => _VideoPreviewScreenState();
+}
+
+class _VideoPreviewScreenState extends State<VideoPreviewScreen> {
+  late VideoPlayerController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = VideoPlayerController.network(widget.videoUrl)
+      ..initialize().then((_) {
+        setState(() {});
+        _controller.play();
+      });
+  }
+
+  @override
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(),
+      body: _controller.value.isInitialized
+          ? AspectRatio(
+              aspectRatio: _controller.value.aspectRatio,
+              child: VideoPlayer(_controller),
+            )
+          : Center(child: CircularProgressIndicator()),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+}
 
 class FilePage extends StatefulWidget {
   final String path; // 当前路径，默认为根目录
@@ -22,10 +103,46 @@ class _FilePageState extends State<FilePage> {
   bool _isLoading = true; // 加载状态
   String? _userId; //  新增：用于存储 userId 的状态变量
 
+  // 状态变量新增
+  Set<String> _selectedFiles = Set(); // 存储选中文件ID
+  bool _isSelectionMode = false;
+
   @override
   void initState() {
     super.initState();
     _fetchFileList(); // 初始化时加载文件列表
+  }
+
+  void _exitSelectionMode() {
+    setState(() {
+      _isSelectionMode = false;
+      _selectedFiles.clear();
+    });
+  }
+
+  void _toggleSelectAll() {
+    setState(() {
+      if (_selectedFiles.length == _filteredFiles.length) {
+        _selectedFiles.clear();
+      } else {
+        _selectedFiles = Set.from(
+            _filteredFiles.map((file) => file['id'].toString()).toList());
+      }
+    });
+  }
+
+  Widget _buildActionButton(
+      IconData icon, String label, VoidCallback onPressed) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          icon: Icon(icon),
+          onPressed: onPressed, // 添加缺失的 required 参数
+        ),
+        Text(label),
+      ],
+    );
   }
 
   // 从后端获取文件列表
@@ -65,6 +182,25 @@ class _FilePageState extends State<FilePage> {
               .cast<Map<String, dynamic>>(); // 强制转换为 Map<String, dynamic> 列表
           _filteredFiles = _allFiles;
           _isLoading = false; // 加载完成
+          //排序功能
+          _filteredFiles.sort((a, b) {
+            switch (_sortBy) {
+              case '文件名':
+                return a['name'].compareTo(b['name']);
+              case '文件类型':
+                return a['format'].compareTo(b['format']);
+              case '文件大小':
+                return (a['size'] as num).compareTo(b['size'] as num);
+              case '修改时间':
+                return DateTime.parse(b['updated_at'])
+                    .compareTo(DateTime.parse(a['updated_at']));
+              case '打开时间':
+                return DateTime.parse(b['opened_at'])
+                    .compareTo(DateTime.parse(a['opened_at']));
+              default:
+                return 0;
+            }
+          });
         });
       } else {
         // 处理错误情况
@@ -148,6 +284,13 @@ class _FilePageState extends State<FilePage> {
                                     : Icons.insert_drive_file,
                               ),
                         title: Text(file['name'] ?? 'Unknown Name'),
+                        trailing: _isSelectionMode
+                            ? Checkbox(
+                                value: _selectedFiles
+                                    .contains(file['id'].toString()),
+                                onChanged: (_) => _enterSelectionMode(file),
+                              )
+                            : null,
                         subtitle: Text(
                             '大小: ${file['size'] ?? 'Unknown Size'} bytes, 更新时间: ${file['updated_at'] != null ? file['updated_at'].toString().substring(0, 25) : 'Unknown Date'}'),
                         onTap: () {
@@ -162,6 +305,12 @@ class _FilePageState extends State<FilePage> {
                             );
                           } else {
                             // TODO: 文件点击事件，例如下载、预览等
+                            _previewFile(file);
+                          }
+                        },
+                        onLongPress: () {
+                          if (_selectedFiles.isEmpty) {
+                            _enterSelectionMode(file);
                           }
                         },
                       );
@@ -186,8 +335,8 @@ class _FilePageState extends State<FilePage> {
                       // 等待 UploadPhotoPage 返回结果
                       context,
                       MaterialPageRoute(
-                        builder: (context) =>
-                            const UploadPage(uploadType: 'photo'),
+                        builder: (context) => UploadPage(
+                            uploadType: 'photo', currentPath: widget.path),
                         //UploadPhotoPage(path: widget.path), // 传递 path
                       ),
                     );
@@ -205,8 +354,10 @@ class _FilePageState extends State<FilePage> {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (context) =>
-                            const UploadPage(uploadType: 'video'),
+                        builder: (context) => UploadPage(
+                          uploadType: 'video',
+                          currentPath: widget.path,
+                        ),
                       ),
                     );
                   },
@@ -219,8 +370,8 @@ class _FilePageState extends State<FilePage> {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (context) =>
-                            const UploadPage(uploadType: 'document'),
+                        builder: (context) => UploadPage(
+                            uploadType: 'document', currentPath: widget.path),
                       ),
                     );
                   },
@@ -233,8 +384,8 @@ class _FilePageState extends State<FilePage> {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (context) =>
-                            const UploadPage(uploadType: 'audio'),
+                        builder: (context) => UploadPage(
+                            uploadType: 'audio', currentPath: widget.path),
                       ),
                     );
                   },
@@ -247,8 +398,8 @@ class _FilePageState extends State<FilePage> {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (context) =>
-                            const UploadPage(uploadType: 'other'),
+                        builder: (context) => UploadPage(
+                            uploadType: 'other', currentPath: widget.path),
                       ),
                     );
                   },
@@ -275,6 +426,80 @@ class _FilePageState extends State<FilePage> {
           );
         },
         child: const Icon(Icons.add),
+      ),
+    );
+  }
+
+// 新增预览方法
+  void _previewFile(Map<String, dynamic> file) async {
+    final fileUrl =
+        '${Config.baseUrl}/get_file?user_id=$_userId&file_path=${Uri.encodeComponent('${widget.path}${file['name']}')}';
+
+    if (file['format'] != null &&
+        ['jpg', 'jpeg', 'png', 'gif', 'bmp']
+            .contains(file['format'].toString().toLowerCase())) {
+      // 图片预览
+      Navigator.push(
+          context,
+          MaterialPageRoute(
+              builder: (_) => PhotoViewGalleryScreen(imageUrl: fileUrl)));
+    } else if (isVideoFile(file['format'])) {
+      // 视频预览
+      Navigator.push(
+          context,
+          MaterialPageRoute(
+              builder: (_) => VideoPreviewScreen(videoUrl: fileUrl)));
+    } else {
+      // 其他文件用系统应用打开
+      if (await canLaunch(fileUrl)) {
+        await launch(fileUrl);
+      } else {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('无法打开此文件类型')));
+      }
+    }
+  }
+
+  // 进入选择模式
+  void _enterSelectionMode(Map<String, dynamic> initialFile) {
+    setState(() {
+      _isSelectionMode = true;
+      _selectedFiles.add(initialFile['id'].toString());
+    });
+  }
+
+// 构建顶部操作栏
+  Widget _buildSelectionAppBar() {
+    return AppBar(
+      leading: IconButton(
+        icon: Icon(Icons.close),
+        onPressed: _exitSelectionMode,
+      ),
+      title: Text('已选中 ${_selectedFiles.length} 个文件'),
+      actions: [
+        IconButton(
+          icon: Icon(_selectedFiles.length == _filteredFiles.length
+              ? Icons.check_box_outline_blank
+              : Icons.check_box),
+          onPressed: _toggleSelectAll,
+        ),
+      ],
+    );
+  }
+
+  // 构建底部操作栏
+  Widget _buildBottomActionBar() {
+    return BottomAppBar(
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: [
+          // _buildActionButton(Icons.download, '下载', _handleDownload),
+          // _buildActionButton(Icons.share, '分享', _handleShare),
+          // _buildActionButton(Icons.delete, '删除', _handleDelete),
+          // _buildActionButton(
+          //     Icons.drive_file_rename_outline, '重命名', _handleRename),
+          // _buildActionButton(Icons.drive_file_move, '移动', _handleMove),
+        ],
       ),
     );
   }
