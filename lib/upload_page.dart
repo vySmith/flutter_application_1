@@ -4,7 +4,11 @@ import 'package:file_picker/file_picker.dart'; // 文件选择器
 import 'package:http/http.dart' as http; // HTTP 请求
 import 'package:path_provider/path_provider.dart'; // 获取临时路径
 import 'package:shared_preferences/shared_preferences.dart';
+import 'transfer_provider.dart';
+import 'TransferService.dart';
 import 'config.dart';
+import 'FileService.dart';
+import 'package:provider/provider.dart';
 
 class UploadPage extends StatefulWidget {
   final String uploadType; // 上传类型：photo, video, document, audio, other
@@ -92,25 +96,17 @@ class _UploadPageState extends State<UploadPage> {
 
     if (result != null) {
       final paths = result.paths;
-      if (paths != null) {
-        // 再次检查 paths 是否为 null (虽然在 result != null 条件下不太可能)
-        final validPaths = paths.whereType<String>().toList(); // 过滤掉 null 路径
-        if (validPaths.isNotEmpty) {
-          setState(() {
-            _files = validPaths.map((path) => File(path)).toList();
-          });
-        } else {
-          // 没有选择到有效文件路径
-          print('No valid file paths selected');
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('未选择任何有效文件')),
-          );
-        }
+      // 再次检查 paths 是否为 null (虽然在 result != null 条件下不太可能)
+      final validPaths = paths.whereType<String>().toList(); // 过滤掉 null 路径
+      if (validPaths.isNotEmpty) {
+        setState(() {
+          _files = validPaths.map((path) => File(path)).toList();
+        });
       } else {
-        // result.paths 为 null 的情况 (理论上不应该发生，但为了严谨处理)
-        print('File paths are null');
+        // 没有选择到有效文件路径
+        print('No valid file paths selected');
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('获取文件路径失败')),
+          const SnackBar(content: Text('未选择任何有效文件')),
         );
       }
     } else {
@@ -123,37 +119,6 @@ class _UploadPageState extends State<UploadPage> {
     }
   }
 
-  // 选择上传路径
-  // void _selectUploadPath() {
-  //   // TODO: 从后端获取文件夹列表并显示选择对话框
-  //   showDialog(
-  //     context: context,
-  //     builder: (context) => AlertDialog(
-  //       title: const Text('选择上传路径'),
-  //       content: Column(
-  //         mainAxisSize: MainAxisSize.min,
-  //         children: [
-  //           ListTile(
-  //             title: const Text('/ (根目录)'),
-  //             onTap: () {
-  //               setState(() => _uploadPath = '/');
-  //               Navigator.pop(context);
-  //             },
-  //           ),
-  //           // 示例文件夹，实际应从后端获取
-  //           ListTile(
-  //             title: const Text('/folder'),
-  //             onTap: () {
-  //               setState(() => _uploadPath = '/folder1/');
-  //               Navigator.pop(context);
-  //             },
-  //           ),
-  //         ],
-  //       ),
-  //     ),
-  //   );
-  // }
-
   // 全选文件
   void _selectAll() {
     setState(() {
@@ -162,29 +127,35 @@ class _UploadPageState extends State<UploadPage> {
   }
 
   // 上传文件到后端
+// 上传文件
   Future<void> _uploadFiles() async {
-    const String apiUrl = '${Config.baseUrl}/upload'; // 后端地址
-    for (var file in _selectedFiles) {
-      var request = http.MultipartRequest('POST', Uri.parse(apiUrl));
+    try {
+      await FileService.uploadFiles(
+        filePaths: _selectedFiles.map((f) => f.path).toList(),
+        targetPath: _uploadPath,
+      );
 
-      final prefs =
-          await SharedPreferences.getInstance(); // 获取 SharedPreferences 实例
-      final userId =
-          prefs.getString('userId'); // 从 SharedPreferences 中获取 userId
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('所有文件上传成功')),
+      );
+      Navigator.pop(context, true); // 返回刷新信号
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString())),
+      );
+    }
+  }
 
-      request.fields['user_id'] = userId.toString(); // 替换为实际用户ID
-      request.fields['path'] = _uploadPath;
-      request.files.add(await http.MultipartFile.fromPath('file', file.path));
-      var response = await request.send();
-      if (response.statusCode == 201) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('上传成功: ${file.path.split('/').last}')),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('上传失败: ${file.path.split('/').last}')),
-        );
-      }
+  //支持断点续传
+  void _startUpload() async {
+    final provider = Provider.of<TransferProvider>(context, listen: false);
+
+    for (final file in _selectedFiles) {
+      await FileService.uploadWithResume(
+        filePath: file.path,
+        targetPath: _uploadPath,
+        provider: provider,
+      );
     }
   }
 
@@ -212,7 +183,7 @@ class _UploadPageState extends State<UploadPage> {
           if (widget.uploadType == 'photo')
             DropdownButton<String>(
               value: _filter,
-              items: ['全部', '相册一', '相册二'] // 示例相册，实际需从设备获取
+              items: ['全部'] // 示例相册，实际需从设备获取
                   .map((e) => DropdownMenuItem(value: e, child: Text(e)))
                   .toList(),
               onChanged: (value) {

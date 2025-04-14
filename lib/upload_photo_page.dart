@@ -31,8 +31,8 @@ class _UploadPhotoPageState extends State<UploadPhotoPage> {
   }
 
   Future<void> _getImages() async {
-    final ImagePicker _picker = ImagePicker();
-    final List<XFile>? images = await _picker.pickMultiImage();
+    final ImagePicker picker = ImagePicker();
+    final List<XFile> images = await picker.pickMultiImage();
 
     if (images != null) {
       setState(() {

@@ -1,44 +1,74 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // For input formatters
 import 'package:shared_preferences/shared_preferences.dart';
-import 'file_page.dart';
+import 'trash_page.dart';
+// import 'my_shares_page.dart'; // 需要创建这个页面
+// import 'share_preview_page.dart'; // 需要创建这个页面
+import 'UserService.dart'; // 假设 UserService 用于处理用户相关 API 调用
+import 'sharePreview_Page.dart';
+import 'myshare_page.dart';
 
 class ProfilePage extends StatefulWidget {
+  const ProfilePage({super.key}); // 使用 super key
+
   @override
   _ProfilePageState createState() => _ProfilePageState();
 }
 
 class _ProfilePageState extends State<ProfilePage> {
-  String _username = '加载中...'; // 默认用户名
-  String _avatarUrl = '/default_avatar.png'; // 默认头像 URL
+  String _username = '加载中...';
+  String _nickname = '加载中...'; // 新增昵称状态
+  String? _avatarUrl = '/default_avatar.png'; // 可以为 null
+
+  bool _isLoading = true; // 加载状态
 
   @override
   void initState() {
     super.initState();
-    _loadUserInfo(); // 初始化时加载用户信息
+    _loadUserInfo();
   }
 
-  // 从 SharedPreferences 获取用户信息（后续可扩展为从服务器获取）
   Future<void> _loadUserInfo() async {
-    final prefs = await SharedPreferences.getInstance();
-    final userId = prefs.getString('userId');
-    // TODO: 根据 userId 从服务器获取 username 和 avatar_url
-    // 这里暂时模拟数据
-    setState(() {
-      _username = '用户_$userId'; // 模拟用户名
-      // _avatarUrl 在实际中应从服务器获取，这里使用默认值
-    });
+    if (!mounted) return;
+    setState(() => _isLoading = true);
+    try {
+      final userInfo = await UserService.getUserProfile(); // 调用 Service 获取信息
+      if (!mounted) return;
+      setState(() {
+        _username = userInfo['username'] ?? '未知用户';
+        _nickname = userInfo['nickname'] ?? '未设置昵称'; // 使用获取到的昵称
+        _avatarUrl = userInfo['avatar_url']; // 可以为 null
+        _isLoading = false;
+      });
+    } catch (e) {
+      print("加载用户信息失败: $e");
+      if (!mounted) return;
+      setState(() {
+        _username = '加载失败';
+        _nickname = '加载失败';
+        _isLoading = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('加载用户信息失败: ${e.toString()}')),
+      );
+    }
   }
 
-  // 点击头像时显示对话框
   void _showAvatarDialog(BuildContext context) {
+    // ... (保持不变，但注意处理 _avatarUrl 可能为 null 的情况) ...
+    final imageProvider =
+        (_avatarUrl == null || _avatarUrl == '/default_avatar.png')
+            ? AssetImage('assets/default_avatar.png') as ImageProvider
+            : NetworkImage(_avatarUrl!); // 如果不为 null，则使用 NetworkImage
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
+        // ... (内容使用 imageProvider) ...
         contentPadding: EdgeInsets.zero,
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // 放大后的头像
             Container(
               margin: EdgeInsets.all(16.0),
               width: 200,
@@ -46,31 +76,29 @@ class _ProfilePageState extends State<ProfilePage> {
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 image: DecorationImage(
-                  image: _avatarUrl == '/default_avatar.png'
-                      ? AssetImage('assets/default_avatar.png') as ImageProvider
-                      : NetworkImage(_avatarUrl),
+                  image: imageProvider,
                   fit: BoxFit.cover,
+                  // 添加错误处理 for NetworkImage
+                  onError: (exception, stackTrace) {
+                    print("Error loading avatar: $exception");
+                    // 可以显示一个占位符或默认头像
+                  },
                 ),
               ),
             ),
-            // 操作按钮
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
                 TextButton(
-                  onPressed: () {
-                    // TODO: 实现保存头像到手机相册
-                    Navigator.pop(context);
-                  },
-                  child: Text('保存头像'),
-                ),
+                    onPressed: () {
+                      /* TODO */ Navigator.pop(context);
+                    },
+                    child: Text('保存头像')),
                 TextButton(
-                  onPressed: () {
-                    // TODO: 实现更换头像（调用相册）
-                    Navigator.pop(context);
-                  },
-                  child: Text('更换头像'),
-                ),
+                    onPressed: () {
+                      /* TODO */ Navigator.pop(context);
+                    },
+                    child: Text('更换头像')),
               ],
             ),
           ],
@@ -79,18 +107,20 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
-  // 编辑用户名
-  void _editUsername(BuildContext context) {
+  // 编辑昵称
+  void _editNickname(BuildContext context) {
+    final nicknameController =
+        TextEditingController(text: _nickname); // 使用 Controller
     showDialog(
       context: context,
       builder: (context) {
-        String newUsername = _username;
         return AlertDialog(
-          title: Text('编辑用户名'),
+          title: Text('编辑昵称'),
           content: TextField(
-            onChanged: (value) => newUsername = value,
-            controller: TextEditingController(text: _username),
-            decoration: InputDecoration(hintText: '请输入新用户名'),
+            controller: nicknameController, // 绑定 Controller
+            autofocus: true,
+            maxLength: 50, // 限制长度，与数据库一致
+            decoration: InputDecoration(hintText: '请输入新昵称'),
           ),
           actions: [
             TextButton(
@@ -98,10 +128,36 @@ class _ProfilePageState extends State<ProfilePage> {
               child: Text('取消'),
             ),
             TextButton(
-              onPressed: () {
-                // TODO: 将新用户名保存到服务器和本地
-                setState(() => _username = newUsername);
-                Navigator.pop(context);
+              onPressed: () async {
+                // 改为 async
+                final newNickname = nicknameController.text.trim();
+                Navigator.pop(context); // 先关闭对话框
+
+                if (newNickname.isEmpty) {
+                  // 可以允许空昵称，根据需求调整
+                  // 或者不允许空：
+                  // ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('昵称不能为空')));
+                  // return;
+                }
+
+                if (newNickname == _nickname) return; // 没有改变
+
+                try {
+                  // 调用 Service 更新昵称
+                  await UserService.updateNickname(newNickname);
+                  if (!mounted) return;
+                  // 更新本地状态
+                  setState(() => _nickname = newNickname);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('昵称更新成功')),
+                  );
+                } catch (e) {
+                  print("更新昵称失败: $e");
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('更新昵称失败: ${e.toString()}')),
+                  );
+                }
               },
               child: Text('确定'),
             ),
@@ -111,43 +167,125 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
+  // 显示输入分享码对话框 (新增)
+  void _showEnterShareCodeDialog() {
+    final codeController = TextEditingController();
+    showDialog(
+        context: context,
+        builder: (context) {
+          return AlertDialog(
+            title: Text('接收分享'),
+            content: TextField(
+              controller: codeController,
+              autofocus: true,
+              maxLength: 4, // 限制输入长度为 4
+              inputFormatters: [
+                // 只允许输入字母和数字
+                FilteringTextInputFormatter.allow(RegExp(r'[a-zA-Z0-9]')),
+              ],
+              decoration: InputDecoration(
+                hintText: '请输入 4 位分享码',
+                counterText: "", // 隐藏默认的长度计数器
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: Text('取消'),
+              ),
+              TextButton(
+                onPressed: () {
+                  final code = codeController.text.trim();
+                  Navigator.pop(context); // 关闭对话框
+                  if (code.length == 4) {
+                    // TODO: 跳转到 SharePreviewPage 并传递 code
+                    print("准备访问分享码: $code");
+                    Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) =>
+                              SharePreviewPage(shareCode: code),
+                        ));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('即将打开分享: $code (预览页待实现)')),
+                    );
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('请输入有效的 4 位分享码')),
+                    );
+                  }
+                },
+                child: Text('确定'),
+              ),
+            ],
+          );
+        });
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('个人'),
-      ),
-      body: Column(
+    // 根据加载状态显示不同内容
+    Widget bodyContent;
+    if (_isLoading) {
+      bodyContent = Center(child: CircularProgressIndicator());
+    } else {
+      bodyContent = Column(
         children: [
           // 用户信息内容框
           Padding(
             padding: const EdgeInsets.all(16.0),
             child: Row(
               children: [
-                // 头像
                 GestureDetector(
                   onTap: () => _showAvatarDialog(context),
                   child: CircleAvatar(
                     radius: 40,
-                    backgroundImage: _avatarUrl == '/default_avatar.png'
+                    backgroundImage: (_avatarUrl == null ||
+                            _avatarUrl == '/default_avatar.png')
                         ? AssetImage('assets/default_avatar.png')
-                        : NetworkImage(_avatarUrl) as ImageProvider,
+                            as ImageProvider
+                        : NetworkImage(_avatarUrl!),
+                    // 可以添加加载或错误占位符
+                    onBackgroundImageError: (exception, stackTrace) {
+                      print("Error loading avatar in CircleAvatar: $exception");
+                    },
+                    child: (_avatarUrl == null ||
+                            _avatarUrl == '/default_avatar.png')
+                        ? Icon(Icons.person, size: 40)
+                        : null, // 默认图标
                   ),
                 ),
                 SizedBox(width: 16),
-                // 用户名和编辑图标
                 Expanded(
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  child: Column(
+                    // 改为 Column 显示昵称和用户名
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        _username,
-                        style: TextStyle(
-                            fontSize: 20, fontWeight: FontWeight.bold),
+                      Row(
+                        // 昵称和编辑按钮
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            // 让昵称可以换行
+                            child: Text(
+                              _nickname,
+                              style: TextStyle(
+                                  fontSize: 20, fontWeight: FontWeight.bold),
+                              overflow: TextOverflow.ellipsis, // 超长省略
+                            ),
+                          ),
+                          IconButton(
+                            icon: Icon(Icons.edit, size: 20),
+                            tooltip: '编辑昵称',
+                            onPressed: () => _editNickname(context),
+                          ),
+                        ],
                       ),
-                      IconButton(
-                        icon: Icon(Icons.edit, size: 20),
-                        onPressed: () => _editUsername(context),
+                      SizedBox(height: 4),
+                      Text(
+                        // 显示用户名 (可选)
+                        '用户名: $_username',
+                        style: TextStyle(fontSize: 14, color: Colors.grey[600]),
                       ),
                     ],
                   ),
@@ -161,39 +299,75 @@ class _ProfilePageState extends State<ProfilePage> {
             child: ListView(
               children: [
                 ListTile(
-                  leading: Icon(Icons.delete),
-                  title: Text('回收站'),
+                  // 新增：我的分享
+                  leading: Icon(Icons.share_outlined), // 使用 Outlined 图标
+                  title: Text('我的分享'),
+                  trailing: Icon(Icons.chevron_right),
                   onTap: () {
-                    // TODO: 跳转到回收站页面
+                    // TODO: 跳转到 MySharesPage
+                    print("跳转到 我的分享 页面 (待实现)");
+                    Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (context) => MySharesPage()));
                   },
                 ),
                 ListTile(
-                  leading: Icon(Icons.lock),
+                  // 新增：输入分享码
+                  leading:
+                      Icon(Icons.qr_code_scanner), // 或 Icons.vpn_key_outlined
+                  title: Text('输入分享码'),
+                  trailing: Icon(Icons.chevron_right),
+                  onTap: _showEnterShareCodeDialog, // 调用显示对话框的函数
+                ),
+                Divider(), // 分隔符
+                ListTile(
+                  leading: Icon(Icons.delete_outline),
+                  title: Text('回收站'),
+                  trailing: Icon(Icons.chevron_right),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (context) => const TrashPage()),
+                    );
+                  },
+                ),
+                ListTile(
+                  leading: Icon(Icons.lock_outline),
                   title: Text('修改密码'),
+                  trailing: Icon(Icons.chevron_right),
                   onTap: () {
                     // TODO: 跳转到修改密码页面
                   },
                 ),
+                Divider(),
                 ListTile(
-                  leading: Icon(Icons.exit_to_app),
-                  title: Text('退出登录'),
+                  leading: Icon(Icons.exit_to_app, color: Colors.red),
+                  title: Text('退出登录', style: TextStyle(color: Colors.red)),
                   onTap: () {
-                    // TODO: 实现退出登录
+                    // TODO: 实现退出登录 (清除 SharedPreferences, 返回登录页)
                   },
                 ),
                 ListTile(
-                  leading: Icon(Icons.cancel),
-                  title: Text('注销账号'),
+                  leading: Icon(Icons.cancel_outlined, color: Colors.red),
+                  title: Text('注销账号', style: TextStyle(color: Colors.red)),
                   onTap: () {
-                    // TODO: 实现注销账号
+                    // TODO: 实现注销账号 (需要二次确认，调用后端接口)
                   },
                 ),
-                // 可扩展更多功能项
               ],
             ),
           ),
         ],
+      );
+    }
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('个人'),
       ),
+      body: bodyContent, // 使用根据加载状态选择的 body
     );
   }
 }
