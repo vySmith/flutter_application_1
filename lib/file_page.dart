@@ -1,118 +1,15 @@
 import 'package:flutter/material.dart';
 import 'upload_page.dart'; // 导入上传页面
-import 'config.dart'; // 替换 your_project_name 为你的项目名
+import 'config.dart'; //
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart'; // 导入 shared_preferences
 import 'upload_photo_page.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:video_player/video_player.dart';
-import 'package:photo_view/photo_view.dart';
-import 'package:photo_view/photo_view_gallery.dart';
+
 import 'package:flutter/services.dart'; // <--- 添加这行
 import 'FileService.dart';
-
-// 添加文件类型判断方法
-bool isImageFile(String? format) {
-  if (format == null) return false;
-  return ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp']
-      .contains(format.toLowerCase());
-}
-
-bool isVideoFile(String? format) {
-  if (format == null) return false;
-  return ['mp4', 'mov', 'avi', 'mkv', 'flv', 'wmv']
-      .contains(format.toLowerCase());
-}
-
-// 图片预览组件
-class PhotoViewGalleryScreen extends StatelessWidget {
-  final String imageUrl;
-
-  const PhotoViewGalleryScreen({required this.imageUrl});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(),
-      body: PhotoView(
-        imageProvider: NetworkImage(imageUrl),
-        minScale: PhotoViewComputedScale.contained,
-        maxScale: PhotoViewComputedScale.covered * 2,
-      ),
-    );
-  }
-}
-
-// 视频预览组件
-class VideoPreviewScreen extends StatefulWidget {
-  final String videoUrl;
-
-  const VideoPreviewScreen({required this.videoUrl});
-
-  @override
-  _VideoPreviewScreenState createState() => _VideoPreviewScreenState();
-}
-
-class _VideoPreviewScreenState extends State<VideoPreviewScreen> {
-  late VideoPlayerController _controller;
-  bool _initialized = false; // 标记初始化状态
-  bool _hasError = false; // 标记是否有错误
-
-  @override
-  void initState() {
-    super.initState();
-    print(
-        "VideoPreviewScreen initState: Initializing video from ${widget.videoUrl}");
-    Uri? videoUri;
-    try {
-      videoUri = Uri.parse(widget.videoUrl); // 解析 Uri
-    } catch (e) {
-      print("Error parsing video URL: ${widget.videoUrl}, Error: $e");
-      setState(() {
-        _hasError = true; // 标记错误状态
-      });
-      return; // 如果 URL 无效，则不继续初始化
-    }
-
-    _controller = VideoPlayerController.networkUrl(videoUri)
-      ..initialize().then((_) {
-        setState(() {
-          _initialized = true;
-          _hasError = false;
-        });
-        _controller.play();
-        _controller.setLooping(true); // 可以选择循环播放
-      }).catchError((error) {
-        // 初始化失败
-        print("Error initializing video player: $error");
-        setState(() {
-          _initialized = false; // 确保 initialized 为 false
-          _hasError = true; // 标记错误状态
-        });
-      });
-  }
-
-  @override
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(),
-      body: _controller.value.isInitialized
-          ? AspectRatio(
-              aspectRatio: _controller.value.aspectRatio,
-              child: VideoPlayer(_controller),
-            )
-          : Center(child: CircularProgressIndicator()),
-    );
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-}
+import 'preview_helper.dart';
 
 class FilePage extends StatefulWidget {
   final String path; // 当前路径，默认为根目录
@@ -292,7 +189,8 @@ class _FilePageState extends State<FilePage> {
               );
             } else {
               // TODO: 文件点击事件，例如下载、预览等
-              _previewFile(file);
+              //_previewFile(file);
+              previewFile(context, file);
             }
           },
           onLongPress: () {
@@ -432,16 +330,36 @@ class _FilePageState extends State<FilePage> {
   // Common handler for Upload actions
   Future<void> _handleUpload(String uploadType) async {
     Navigator.pop(context); // Close bottom sheet
-    final result = await Navigator.push(
+    // final result = await Navigator.push(
+    //   context,
+    //   MaterialPageRoute(
+    //     builder: (context) =>
+    //         UploadPage(uploadType: uploadType, currentPath: widget.path),
+    //   ),
+    // );
+    // // If UploadPage returns true, refresh the list
+    // if (result == true && mounted) {
+    //   _fetchFileList();
+    // }
+    // --- 使用 pushNamed 并传递参数 ---
+    final result = await Navigator.pushNamed(
       context,
-      MaterialPageRoute(
-        builder: (context) =>
-            UploadPage(uploadType: uploadType, currentPath: widget.path),
-      ),
+      '/upload', // 使用路由名称
+      arguments: {
+        // 通过 arguments 传递参数
+        'uploadType': uploadType,
+        'currentPath': widget.path,
+      },
     );
-    // If UploadPage returns true, refresh the list
+    // -----------------------------
+
+    // 处理返回结果
     if (result == true && mounted) {
-      _fetchFileList();
+      _fetchFileList(); // 刷新文件列表
+    }
+    // 如果之前没有 pop，可以在这里 pop
+    if (Navigator.canPop(context)) {
+      // Navigator.pop(context); // 关闭 Bottom Sheet
     }
   }
 

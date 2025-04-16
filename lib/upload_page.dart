@@ -5,10 +5,13 @@ import 'package:http/http.dart' as http; // HTTP 请求
 import 'package:path_provider/path_provider.dart'; // 获取临时路径
 import 'package:shared_preferences/shared_preferences.dart';
 import 'transfer_provider.dart';
-import 'TransferService.dart';
+import 'Transfer_service.dart';
 import 'config.dart';
 import 'FileService.dart';
 import 'package:provider/provider.dart';
+import 'package:uuid/uuid.dart';
+import 'transfer_page.dart';
+import 'package:path/path.dart' as p; // <--- 就是这一行
 
 class UploadPage extends StatefulWidget {
   final String uploadType; // 上传类型：photo, video, document, audio, other
@@ -30,6 +33,7 @@ class _UploadPageState extends State<UploadPage> {
   List<File> _selectedFiles = []; // 选中的文件
   List<File> _files = []; // 显示的文件列表
   String _filter = '全部'; // 文件筛选条件
+  bool _isProcessing = false; // 防止重复点击
 
   @override
   void initState() {
@@ -126,6 +130,108 @@ class _UploadPageState extends State<UploadPage> {
     });
   }
 
+  Future<void> addUploadTasks() async {
+    if (_selectedFiles.isEmpty || _isProcessing) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('请先选择要上传的文件')),
+      );
+      return;
+    }
+    if (!mounted) return;
+
+    setState(() => _isProcessing = true); // 开始处理
+
+    final provider = Provider.of<TransferProvider>(context, listen: false);
+    int addedCount = 0;
+    List<TransferTask> tasksToStart = [];
+
+    // 使用当前状态中的 _selectedFiles
+    for (final file in _selectedFiles) {
+      final filePath = file.path;
+      try {
+        if (!await file.exists()) {
+          print("文件不存在，跳过: $filePath");
+          continue;
+        }
+        final fileName = p.basename(filePath);
+        final fileSize = await file.length();
+
+        final task = TransferTask(
+          id: Uuid().v4(),
+          filePath: filePath,
+          remotePath: _uploadPath, // 使用当前页面的上传路径
+          fileName: fileName,
+          totalSize: fileSize,
+          isUpload: true,
+          status: TransferStatus.queued,
+        );
+
+        // 将任务添加到 Provider (异步，内部处理持久化)
+        // 注意：addTask 本身是异步的，但我们不需要在这里 await 它完成持久化
+        // 我们关心的是任务被加入内存队列
+        provider.addTask(task); // 注意：没用 await
+        tasksToStart.add(task); // 记录下来准备启动
+        addedCount++;
+      } catch (e) {
+        print("处理文件 $filePath 失败: $e");
+        if (!mounted) return; // 异步后检查
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('添加文件 ${p.basename(filePath)} 到队列时出错')),
+        );
+      }
+    }
+
+    if (!mounted) return; // 检查 mounted
+
+    if (addedCount > 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$addedCount 个文件已添加到上传队列')),
+      );
+
+      // --- 启动新添加的任务 ---
+      // 这里我们选择立即启动，也可以只导航让 TransferPage 处理
+      // final transferService =
+      //     Provider.of<TransferService>(context, listen: false); // 获取 Service
+      for (final task in tasksToStart) {
+        // 注意：直接在循环里调用 async 方法但不用 await，会让它们并发执行
+        // 这可能导致同时启动大量上传，需要小心处理并发数
+        // 更好的方式可能是维护一个有限的并发队列
+        print("启动上传任务: ${task.fileName}");
+        // 调用 TransferPage 中的静态方法或共享的启动函数
+        TransferPage.startTransferTask(context, task); // 使用静态方法启动
+      }
+
+      // --- 导航到传输页面 ---
+      // 可以选择每次都跳转，或者只在添加成功后跳转一次
+      // if (mounted) {
+      //   Navigator.push(
+      //       context, MaterialPageRoute(builder: (_) => const TransferPage()));
+      // }
+
+      // ✅ 使用 post-frame callback 安全跳转，避免 async context 警告
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const TransferPage()),
+          );
+        }
+      });
+      // 上传任务已添加并开始，可以清空当前页面的选择或返回上一页
+      // setState(() {
+      //    _selectedFiles.clear();
+      // });
+      // Navigator.pop(context, true); // 返回 true 表示有上传任务添加
+    } else {
+      // 没有成功添加任何任务
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('未能添加任何上传任务')),
+      );
+    }
+
+    setState(() => _isProcessing = false); // 结束处理
+  }
+
   // 上传文件到后端
 // 上传文件
   Future<void> _uploadFiles() async {
@@ -142,19 +248,6 @@ class _UploadPageState extends State<UploadPage> {
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(e.toString())),
-      );
-    }
-  }
-
-  //支持断点续传
-  void _startUpload() async {
-    final provider = Provider.of<TransferProvider>(context, listen: false);
-
-    for (final file in _selectedFiles) {
-      await FileService.uploadWithResume(
-        filePath: file.path,
-        targetPath: _uploadPath,
-        provider: provider,
       );
     }
   }
@@ -235,7 +328,20 @@ class _UploadPageState extends State<UploadPage> {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             TextButton(onPressed: _selectAll, child: const Text('全选')),
-            ElevatedButton(onPressed: _uploadFiles, child: const Text('上传')),
+            //ElevatedButton(onPressed: _uploadFiles, child: const Text('上传')),
+            Padding(
+              // 加点边距
+              padding: const EdgeInsets.only(left: 16.0),
+              child: Text("已选 ${_selectedFiles.length} 项"), // 显示已选数量
+            ),
+            ElevatedButton.icon(
+              icon: Icon(Icons.cloud_upload_outlined),
+              // --- 调用新的上传处理函数 ---
+              onPressed: (_selectedFiles.isNotEmpty && !_isProcessing)
+                  ? addUploadTasks // 点击时调用新函数
+                  : null, // 禁用按钮如果没有选择文件或正在处理
+              label: Text(_isProcessing ? '处理中...' : '开始上传'),
+            ),
           ],
         ),
       ),

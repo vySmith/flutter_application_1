@@ -3,6 +3,7 @@ import 'FileService.dart'; // 假设 FileService 正确定义
 import 'config.dart'; // 假设 Config 正确定义
 import 'file_page.dart'; // 假设预览组件在此文件中
 import 'package:url_launcher/url_launcher.dart';
+import 'preview_helper.dart';
 // 推荐使用 intl 包进行更健壮的日期格式化和计算
 // import 'package:intl/intl.dart';
 

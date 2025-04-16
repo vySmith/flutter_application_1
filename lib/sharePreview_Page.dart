@@ -3,13 +3,10 @@ import 'package:flutter/material.dart';
 import 'FileService.dart'; // 或者放在 FileService 里
 import 'config.dart';
 import 'package:path/path.dart' as p; // 用于处理路径
-import 'package:shared_preferences/shared_preferences.dart';
+
 // 导入你的预览组件 (假设在 file_page.dart 或公共文件)
-import 'file_page.dart'
-    show isImageFile, isVideoFile, PhotoViewGalleryScreen, VideoPreviewScreen;
 import 'package:url_launcher/url_launcher.dart'; // 用于其他文件类型预览
-import 'package:http/http.dart' as http;
-import 'dart:convert';
+import 'preview_helper.dart';
 
 class SharePreviewPage extends StatefulWidget {
   final String shareCode; // 接收分享码

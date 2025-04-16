@@ -7,6 +7,7 @@ import 'trash_page.dart';
 import 'UserService.dart'; // 假设 UserService 用于处理用户相关 API 调用
 import 'sharePreview_Page.dart';
 import 'myshare_page.dart';
+import 'login_page.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key}); // 使用 super key
@@ -165,6 +166,55 @@ class _ProfilePageState extends State<ProfilePage> {
         );
       },
     );
+  }
+
+// --- 退出登录处理 ---
+  Future<void> _handleLogout() async {
+    // (可选) 弹出确认对话框
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('确认退出'),
+        content: Text('您确定要退出当前账号吗？'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false), child: Text('取消')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, true), child: Text('确定退出')),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    try {
+      // 1. 清除本地存储的凭证
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('userId');
+      await prefs.remove('access_token');
+      await prefs.remove('refresh_token'); // 同时清除 refresh token
+      await prefs.remove('token_expires_at');
+      // 清除其他可能缓存的用户信息
+      print("本地登录凭证已清除。");
+
+      // 2. (可选) 通知后端 Token 失效 (如果后端实现了黑名单机制)
+      // await AuthService.logout(); // 假设有这样一个 Service 方法
+
+      if (!mounted) return; // 异步后检查
+
+      // 3. 导航回登录页面，并移除之前的所有页面
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (context) => LoginPage()),
+        (Route<dynamic> route) => false, // 清除导航栈
+      );
+    } catch (e) {
+      print("退出登录时出错: $e");
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('退出登录失败: ${e.toString()}')),
+      );
+    }
   }
 
   // 显示输入分享码对话框 (新增)
@@ -347,6 +397,7 @@ class _ProfilePageState extends State<ProfilePage> {
                   title: Text('退出登录', style: TextStyle(color: Colors.red)),
                   onTap: () {
                     // TODO: 实现退出登录 (清除 SharedPreferences, 返回登录页)
+                    //_handleLogout();
                   },
                 ),
                 ListTile(

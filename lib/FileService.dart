@@ -5,9 +5,6 @@ import 'package:uuid/uuid.dart';
 import 'config.dart';
 import 'dart:convert';
 
-import 'transfer_provider.dart';
-import 'TransferService.dart';
-
 class FileService {
   static final Uuid _uuid = Uuid();
 
@@ -163,33 +160,6 @@ class FileService {
       },
     );
     if (response.statusCode != 200) throw Exception('重命名失败');
-  }
-
-  //断点续传服务
-  // file_service.dart
-  static Future<TransferTask> uploadWithResume({
-    required String filePath,
-    required String targetPath,
-    required TransferProvider provider,
-  }) async {
-    final task = TransferTask(
-      id: _uuid.v4(),
-      filePath: filePath,
-      remotePath: targetPath,
-    );
-
-    provider.addUpload(task);
-
-    final service = TransferService();
-    await service.uploadFile(
-      task: task,
-      onProgress: (progress) {
-        task.progress = progress;
-        provider.notifyListeners();
-      },
-    );
-
-    return task;
   }
 
 // 获取回收站文件

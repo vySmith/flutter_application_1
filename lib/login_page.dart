@@ -44,6 +44,15 @@ class _LoginPageState extends State<LoginPage> {
           final userId = data['user_id']; // 从登录接口返回的数据中获取 user_id
           await prefs.setString('userId', userId.toString()); // 存储 user_id
 
+          // final accessToken = data['access_token']; // <--- 假设后端返回了令牌
+          // final refreshToken = data['refresh_token']; // <--- 可选，用于刷新令牌
+          // final expiresAt = data['expires_at']; // <--- 令牌过期时间戳或时长
+          // await prefs.setString('access_token', accessToken); // <--- 存储令牌
+          // if (refreshToken != null)
+          //   await prefs.setString('refresh_token', refreshToken);
+          // if (expiresAt != null)
+          //   await prefs.setInt('token_expires_at', expiresAt); // 存储过期时间戳 (int)
+
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(builder: (context) => HomePage()),
@@ -79,7 +88,12 @@ class _LoginPageState extends State<LoginPage> {
               SizedBox(height: 20),
               TextFormField(
                 decoration: InputDecoration(labelText: '用户名'),
-                validator: (value) => value!.isEmpty ? '请输入用户名' : null,
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return '请输入用户名';
+                  }
+                  return null;
+                },
                 onSaved: (value) => _username = value!,
               ),
               TextFormField(
@@ -97,7 +111,12 @@ class _LoginPageState extends State<LoginPage> {
                   ),
                 ),
                 obscureText: _obscurePassword,
-                validator: (value) => value!.isEmpty ? '请输入密码' : null,
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return '请输入密码';
+                  }
+                  return null;
+                },
                 onSaved: (value) => _password = value!,
               ),
               SizedBox(height: 20),
