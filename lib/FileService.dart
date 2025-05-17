@@ -6,8 +6,6 @@ import 'config.dart';
 import 'dart:convert';
 
 class FileService {
-  static final Uuid _uuid = Uuid();
-
   // 获取用户ID（私有方法）
   static Future<String?> getUserId() async {
     final prefs = await SharedPreferences.getInstance();
@@ -276,10 +274,13 @@ class FileService {
 
     final response = await http.post(
       Uri.parse('${Config.baseUrl}/share/save'),
-      body: {
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({
         'user_id': userId,
         'share_code': shareCode,
-      },
+      }),
     );
 
     if (response.statusCode == 200) {

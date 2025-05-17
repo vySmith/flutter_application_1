@@ -247,7 +247,8 @@ class _SharePreviewPageState extends State<SharePreviewPage> {
                       ),
                       isThreeLine: true, // 允许 subtitle 显示两行
                       onTap: (type == 'file') // 文件夹在预览页通常不可点击进入
-                          ? () => _previewFile(context, file, ownerId)
+                          ? () => previewFile(context,
+                              file) //_previewFile(context, file, ownerId)
                           : null,
                     );
                   },

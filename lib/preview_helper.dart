@@ -11,15 +11,8 @@ import 'package:chewie/chewie.dart'; // 导入 Chewie
 // 假设这些在别处定义
 import 'config.dart';
 import 'FileService.dart';
-import 'file_page.dart'
-    show
-        isImageFile,
-        isVideoFile,
-        PhotoViewGalleryScreen,
-        VideoPreviewScreen; // 导入你的预览组件
 import 'dart:async';
 import 'package:photo_view/photo_view.dart';
-import 'package:photo_view/photo_view_gallery.dart';
 import 'dart:math'; // <--- 添加这行
 
 // 添加文件类型判断方法
@@ -73,12 +66,22 @@ bool isAudioFile(String? format) {
 // --- 修改后的预览方法 ---
 void previewFile(BuildContext context, Map<String, dynamic> file) async {
   // 使用传递的 ownerId (来自 SharePreviewPage) 或当前用户的 ID (来自 FilePage)
+  //final userId = file['user_id'];
   final userId = await FileService.getUserId();
+  final int? fileId = file['id'];
+  int? physicalfileid = file['physical_file_id'];
   final String? filePath = file['path']?.toString();
   final String format = (file['format'] ?? '').toString().toLowerCase();
   final String fileName = file['name']?.toString() ?? '未知文件'; // 获取文件名
 
-  if (userId == null || filePath == null || filePath.isEmpty) {
+// 如果 physicalfileid 为空，则使用 fileId 作为替代
+
+  physicalfileid ??= fileId;
+
+  if (userId == null ||
+      filePath == null ||
+      filePath.isEmpty ||
+      physicalfileid == null) {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('无法获取预览所需信息')),
     );
@@ -86,8 +89,11 @@ void previewFile(BuildContext context, Map<String, dynamic> file) async {
   }
 
   // 构建文件访问 URL
+  // final fileUrlString =
+  //     '${Config.baseUrl}/get_file?user_id=$userId&file_path=${Uri.encodeComponent(filePath)}';
   final fileUrlString =
-      '${Config.baseUrl}/get_file?user_id=$userId&file_path=${Uri.encodeComponent(filePath)}';
+      '${Config.baseUrl}/get_file?user_id=$userId&file_id=$fileId&physical_file_id=$physicalfileid&file_path=${Uri.encodeComponent(filePath!)}';
+
   print("Attempting to access file via URL: $fileUrlString");
 
   Uri? fileUri;

@@ -397,7 +397,7 @@ class _ProfilePageState extends State<ProfilePage> {
                   title: Text('退出登录', style: TextStyle(color: Colors.red)),
                   onTap: () {
                     // TODO: 实现退出登录 (清除 SharedPreferences, 返回登录页)
-                    //_handleLogout();
+                    _handleLogout();
                   },
                 ),
                 ListTile(

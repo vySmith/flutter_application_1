@@ -1,15 +1,17 @@
 import 'package:flutter/material.dart';
-import 'upload_page.dart'; // 导入上传页面
 import 'config.dart'; //
-import 'package:http/http.dart' as http;
-import 'dart:convert';
-import 'package:shared_preferences/shared_preferences.dart'; // 导入 shared_preferences
-import 'upload_photo_page.dart';
+import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
-
+import 'transfer_provider.dart';
 import 'package:flutter/services.dart'; // <--- 添加这行
 import 'FileService.dart';
 import 'preview_helper.dart';
+import 'package:uuid/uuid.dart';
+import 'package:path/path.dart' as p; // For basename
+import 'dart:io'; // <--- 导入 dart:io 来使用 Directory 和 File
+import 'package:path_provider/path_provider.dart'; // <--- 导入 path_provider
+import 'transfer_page.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 class FilePage extends StatefulWidget {
   final String path; // 当前路径，默认为根目录
@@ -141,8 +143,14 @@ class _FilePageState extends State<FilePage> {
         // Determine the leading icon
         Widget leadingIcon;
         if (isImageFile(file['format'])) {
+          final int? fileId = file['id'];
+          final int? physical_fileId = file['physical_file_id'];
+          final String? filePath = file['path']?.toString();
+          // final imageUrl =
+          //     '${Config.baseUrl}/get_file?user_id=$_userId&file_path=${Uri.encodeComponent(file['path'] ?? '')}';
           final imageUrl =
-              '${Config.baseUrl}/get_file?user_id=$_userId&file_path=${Uri.encodeComponent(file['path'] ?? '')}';
+              '${Config.baseUrl}/get_file?user_id=$_userId&file_id=$fileId&physical_file_id=$physical_fileId&file_path=${Uri.encodeComponent(filePath!)}';
+
           leadingIcon = Image.network(
             imageUrl,
             width: 50, // Slightly smaller thumbnail
@@ -363,58 +371,6 @@ class _FilePageState extends State<FilePage> {
     }
   }
 
-// 新增预览方法
-  void _previewFile(Map<String, dynamic> file) async {
-    final fileUrlString =
-        '${Config.baseUrl}/get_file?user_id=$_userId&file_path=${Uri.encodeComponent('${file['path']}')}';
-
-    Uri? fileUri; // Uri 可以为 null
-    try {
-      fileUri = Uri.parse(fileUrlString); // 尝试将字符串解析为 Uri
-    } catch (e) {
-      print("Error parsing URL: $fileUrlString, Error: $e");
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('无法解析文件链接')));
-      return; // 如果 URL 无效则停止执行
-    }
-
-    final String format =
-        (file['format'] ?? '').toString().toLowerCase(); // 获取格式并转小写
-
-    if (file['format'] != null &&
-        ['jpg', 'jpeg', 'png', 'gif', 'bmp']
-            .contains(file['format'].toString().toLowerCase())) {
-      // 图片预览
-      Navigator.push(
-          context,
-          MaterialPageRoute(
-              builder: (_) => PhotoViewGalleryScreen(imageUrl: fileUrlString)));
-    } else if (isVideoFile(file['format'])) {
-      // 视频预览
-      Navigator.push(
-          context,
-          MaterialPageRoute(
-              builder: (_) => VideoPreviewScreen(videoUrl: fileUrlString)));
-    } else {
-      // 其他文件用系统应用打开
-      if (await canLaunchUrl(fileUri)) {
-        try {
-          // 对于 http/https 链接，通常不需要指定 mode
-          // 如果是本地文件 file:// uri，可能需要 LaunchMode.externalApplication
-          await launchUrl(fileUri,
-              mode: LaunchMode.externalApplication); // 使用 launchUrl 和 Uri
-        } catch (e) {
-          print("Error launching URL: $fileUri, Error: $e");
-          ScaffoldMessenger.of(context)
-              .showSnackBar(SnackBar(content: Text('启动外部应用失败: $e')));
-        }
-      } else {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('无法打开此文件类型')));
-      }
-    }
-  }
-
   // 进入选择模式
   void _enterSelectionMode(Map<String, dynamic> initialFile) {
     setState(() {
@@ -442,32 +398,234 @@ class _FilePageState extends State<FilePage> {
     );
   }
 
-  // 构建底部操作栏
-  // Widget _buildBottomActionBar() {
-  //   return BottomAppBar(
-  //     child: Row(
-  //       mainAxisAlignment: MainAxisAlignment.spaceAround,
-  //       children: [
-  //         // _buildActionButton(Icons.download, '下载', _handleDownload),
-  //          _buildActionButton(Icons.share, '分享', _handleShare),
-  //         _buildActionButton(Icons.delete, '删除', _handleDelete),
-  //         // _buildActionButton(
-  //         //     Icons.drive_file_rename_outline, '重命名', _handleRename),
-  //         // _buildActionButton(Icons.drive_file_move, '移动', _handleMove),
-  //       ],
-  //     ),
-  //   );
-  // }
+  Future<String?> _getTargetDownloadDirectory(String fileName) async {
+    PermissionStatus status = PermissionStatus.denied; // 默认拒绝状态
+
+    try {
+      if (Platform.isAndroid) {
+        print("正在请求 Android 存储权限...");
+        status = await Permission.storage.request();
+        print("Android 存储权限状态: $status");
+      } else if (Platform.isIOS) {
+        // iOS 保存到公共目录困难，所以我们直接获取应用文档目录
+        // 但如果后续要保存到相册，那里会单独请求 photos 权限
+        status = PermissionStatus.granted; // 假设文档目录可写
+        print("iOS 平台，默认使用应用文档目录。");
+      } else {
+        status = PermissionStatus.granted; // 其他平台暂时假设可以
+        print("其他平台，假设有权限。");
+      }
+    } catch (e) {
+      print("请求权限时出错: $e");
+      // 将 status 设为拒绝，以便后续逻辑知道出错了
+      status = PermissionStatus.denied;
+    }
+
+    // --- 检查权限结果 ---
+    if (!status.isGranted) {
+      print("存储权限未被授予 (状态: $status)");
+      // 可以根据具体状态给出更详细提示
+      String message = '需要存储权限才能下载文件到公共目录。';
+      if (status.isPermanentlyDenied) {
+        message += ' 请在系统设置中手动开启权限。';
+        // 可以引导用户去设置
+        openAppSettings(); // permission_handler 提供的函数
+      } else if (status.isRestricted) {
+        message = '存储权限受限，无法下载。';
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
+      return null; // 返回 null 表示无法继续
+    }
+
+    // --- 权限已授予，继续获取目录 ---
+    Directory? downloadsDir;
+    String? downloadPath;
+    String targetDirDescription = "应用文档目录"; // 用于日志
+
+    if (Platform.isAndroid) {
+      //   try {
+      //     print("尝试获取公共 Downloads 目录...");
+      //     downloadsDir = await getDownloadsDirectory(); // 优先尝试这个
+      //     if (downloadsDir != null) {
+      //       targetDirDescription = "公共 Downloads 目录";
+      //       String appDownloadDir =
+      //           p.join(downloadsDir.path, 'CloudS_Downloads'); // 应用名子目录
+      //       final dir = Directory(appDownloadDir);
+      //       if (!await dir.exists()) {
+      //         await dir.create(recursive: true);
+      //         print("在公共下载目录中创建了子目录: $appDownloadDir");
+      //       }
+      //       downloadPath = p.join(appDownloadDir, fileName);
+      //       print("将使用公共下载目录下的子目录: $downloadPath");
+      //     } else {
+      //       print("无法获取公共下载目录。");
+      //     }
+      //   } catch (e) {
+      //     print("获取公共下载目录时出错: $e");
+      //   }
+      // }
+      try {
+        final Directory docDir = await getApplicationDocumentsDirectory();
+        // 在文档目录下也创建一个 Downloads 子目录，保持一致性
+        String appDocDownloadDir = p.join(docDir.path, 'Downloads');
+        final dir = Directory(appDocDownloadDir);
+        if (!await dir.exists()) {
+          await dir.create(recursive: true);
+        }
+        downloadPath = p.join(appDocDownloadDir, fileName);
+        targetDirDescription = "应用文档目录";
+        print("回退到应用文档目录: $downloadPath");
+      } catch (e) {
+        print("获取应用文档目录时出错: $e");
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('无法获取应用文档目录: ${e.toString()}')));
+        return null; // 连文档目录都获取失败，则无法下载
+      }
+      // // 回退到应用文档目录
+      // if (downloadPath == null) {
+      //   try {
+      //     final Directory docDir = await getApplicationDocumentsDirectory();
+      //     // 在文档目录下也创建一个 Downloads 子目录，保持一致性
+      //     String appDocDownloadDir = p.join(docDir.path, 'Downloads');
+      //     final dir = Directory(appDocDownloadDir);
+      //     if (!await dir.exists()) {
+      //       await dir.create(recursive: true);
+      //     }
+      //     downloadPath = p.join(appDocDownloadDir, fileName);
+      //     targetDirDescription = "应用文档目录";
+      //     print("回退到应用文档目录: $downloadPath");
+      //   } catch (e) {
+      //     print("获取应用文档目录时出错: $e");
+      //     ScaffoldMessenger.of(context).showSnackBar(
+      //         SnackBar(content: Text('无法获取应用文档目录: ${e.toString()}')));
+      //     return null; // 连文档目录都获取失败，则无法下载
+      //   }
+      // }
+    }
+    // --- 文件名冲突处理 ---
+    int counter = 1;
+    String finalPath = downloadPath!; // 此时 downloadPath 必不为 null
+    final base = p.basenameWithoutExtension(finalPath);
+    final ext = p.extension(finalPath);
+    while (await File(finalPath).exists()) {
+      finalPath = p.join(p.dirname(downloadPath), '$base($counter)$ext');
+      counter++;
+      if (counter > 100) {
+        print("文件名冲突过多，无法保存: $downloadPath");
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('目标位置 (${targetDirDescription}) 文件名冲突过多')),
+        );
+        return null;
+      }
+    }
+    if (finalPath != downloadPath) {
+      print("文件名冲突，最终路径调整为: $finalPath");
+    } else {
+      print("最终下载路径确定为: $finalPath (位于: ${targetDirDescription})");
+    }
+    return finalPath;
+  }
+
+// --- 下载处理函数 ---
+  Future<void> _handleDownload() async {
+    if (_selectedFiles.isEmpty) return;
+
+    final List<TransferTask> downloadTasks = [];
+    int addedCount = 0;
+    bool errorOccurred = false;
+
+    // --- 遍历选中的文件 ---
+    for (final fileId in _selectedFiles) {
+      final file = _allFiles.firstWhere(
+        (f) => f['id']?.toString() == fileId,
+        orElse: () => <String, dynamic>{},
+      );
+
+      if (file['type'] == 'file' &&
+          file['path'] != null &&
+          file['name'] != null &&
+          file['size'] != null) {
+        final String remoteIdentifier = file['id'].toString(); // 使用文件 ID
+        final String fileName = file['name'];
+        final int totalSize = file['size'];
+        final String? fileFormat = file['format']?.toString().toLowerCase();
+
+        // --- 获取并确定本地保存路径 (包含权限和冲突处理) ---
+        final String? localSavePath =
+            await _getTargetDownloadDirectory(fileName);
+
+        if (localSavePath == null) {
+          errorOccurred = true; // 获取路径失败，标记错误
+          continue; // 跳过这个文件
+        }
+        // -------------------------------------------------
+
+        final task = TransferTask(
+          id: Uuid().v4(),
+          filePath: localSavePath, // 使用最终确定的本地路径
+          remotePath: remoteIdentifier, // 使用文件 ID
+          fileName: fileName,
+          totalSize: totalSize,
+          isUpload: false,
+          status: TransferStatus.queued,
+        );
+        downloadTasks.add(task);
+        addedCount++;
+      } else {
+        print("跳过无效或非文件项: $fileId");
+      }
+    }
+
+    // --- 处理结果 ---
+    if (errorOccurred && addedCount == 0) {
+      // 如果所有文件都因为获取路径失败而跳过
+      print("所有选定文件都无法确定下载路径。");
+      // SnackBar 已在 _getTargetDownloadDirectory 中显示
+    } else if (downloadTasks.isNotEmpty) {
+      final provider = Provider.of<TransferProvider>(context, listen: false);
+      for (final task in downloadTasks) {
+        await provider.addTask(task);
+        TransferPage.startTransferTask(context, task);
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$addedCount 个文件已添加到下载队列')),
+      );
+      Navigator.push(
+          context, MaterialPageRoute(builder: (_) => const TransferPage()));
+    } else if (!errorOccurred) {
+      // 没有错误，但也没添加任务
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('未选择任何有效文件进行下载')),
+      );
+    }
+
+    _exitSelectionMode(); // 退出选择模式
+  }
+
   // --- 修改底部操作栏 ---
   Widget _buildBottomActionBar() {
     // 分享按钮是否启用 (仅当选中了 1 个文件时)
     final bool canShare = _selectedFiles.length == 1;
-
+    final bool canDownload = _selectedFiles.isNotEmpty &&
+        _selectedFiles.every((id) {
+          // 确保选中的都是文件而不是文件夹
+          final file = _allFiles.firstWhere((f) => f['id']?.toString() == id,
+              orElse: () => <String, dynamic>{});
+          return file['type'] == 'file';
+        });
     return BottomAppBar(
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          // _buildActionButton(Icons.download, '下载', _handleDownload), // Placeholder
+          _buildActionButton(
+              Icons.download_outlined, // 使用 outlined icon
+              '下载',
+              canDownload ? _handleDownload : null // 仅当选中且都是文件时启用
+              ),
           _buildActionButton(
               Icons.share_outlined, // Use outlined icon
               '分享',
@@ -600,17 +758,6 @@ class _FilePageState extends State<FilePage> {
       ],
     );
   }
-
-// void _handleDownload() async {
-//   try {
-//     final url = await FileService.getDownloadUrl(filePath: file['path']);
-//     if (await canLaunch(url)) {
-//       await launch(url); // 使用浏览器下载
-//     }
-//   } catch (e) {
-//     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('下载失败')));
-//   }
-// }
 
   void _handleDelete() async {
     if (_selectedFiles.isEmpty) return;

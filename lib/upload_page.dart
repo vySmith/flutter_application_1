@@ -1,12 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart'; // 文件选择器
-import 'package:http/http.dart' as http; // HTTP 请求
-import 'package:path_provider/path_provider.dart'; // 获取临时路径
-import 'package:shared_preferences/shared_preferences.dart';
 import 'transfer_provider.dart';
-import 'Transfer_service.dart';
-import 'config.dart';
 import 'FileService.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';

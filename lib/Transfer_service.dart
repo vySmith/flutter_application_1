@@ -235,15 +235,21 @@ class TransferService {
 
     try {
       final existingLength = await file.exists() ? await file.length() : 0;
-
       client = http.Client();
-      final request = http.Request(
-        'GET',
-        // 假设 task.id 是文件的数据库 ID 或可用于下载的标识符
-        Uri.parse('${Config.baseUrl}/download?file_id=${task.id}'),
-      );
+      final userId = await FileService.getUserId();
+      // --- 修改 URL，同时发送 user_id 和 file_id ---
+      final uri =
+          Uri.parse('${Config.baseUrl}/download').replace(queryParameters: {
+        'user_id': userId, // <--- 添加 user_id
+        'file_id': task.remotePath // <--- 假设 task.remotePath 存储的是文件 ID
+        // 如果 task.id 是文件 ID，用 task.id: task.id
+      });
+      // ---------------------------------------------
+
+      final request = http.Request('GET', uri); // 使用构建好的 URI
+
       request.headers['Range'] = 'bytes=$existingLength-';
-      print("请求下载: Range=bytes=$existingLength-");
+      print("请求下载: URI=$uri, Range=bytes=$existingLength-"); // 更新打印信息
 
       // 注册 Client 以便取消
       _downloadSubscriptions[task.id] = null; // Placeholder
